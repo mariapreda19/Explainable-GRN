@@ -76,44 +76,44 @@ def build_edges(raw_edges, n):
 
     return edges
 
-def activator_input(gene, state):
+def activator_input(gene, state, EDGES):
     value = Fraction(0)
     for e in EDGES:
         if e["tgt"] == gene and e["mode"] == "activation":
             value = OPlus(value, ODot(e["weight"], state[e["src"]]))
     return value
 
-def inhibitor_input(gene, state):
+def inhibitor_input(gene, state, EDGES):
     value = Fraction(0)
     for e in EDGES:
         if e["tgt"] == gene and e["mode"] == "inhibition":
             value = OPlus(value, ODot(e["weight"], state[e["src"]]))
     return value
 
-def update_gene(gene, state):
+def update_gene(gene, state, EDGES):
     has_input = any(e["tgt"] == gene for e in EDGES)
     if not has_input:
         return state[gene]
-    A = activator_input(gene, state)
-    I = inhibitor_input(gene, state)
+    A = activator_input(gene, state, EDGES)
+    I = inhibitor_input(gene, state, EDGES)
     return ODot(A, neg(I))
 
-def update_state(state):
+def update_state(state, GENES, EDGES):
 
     next_state = {}
 
     for gene in GENES:
-        next_state[gene] = update_gene(gene, state)
+        next_state[gene] = update_gene(gene, state, EDGES)
 
     return next_state
 
-def run_n_steps(initial_state, steps):
+def run_n_steps(initial_state, steps, GENES, EDGES):
     states = [initial_state]
     transitions = []
 
     current = initial_state
     for step in range(steps):
-        next = update_state(current)
+        next = update_state(current, GENES, EDGES)
         if current == next:
             break
         transitions.append((current, next))
@@ -123,12 +123,12 @@ def run_n_steps(initial_state, steps):
     return states, transitions
 
 
-def print_state(label, state):
+def print_state(N, GENES, label, state):
     values = ", ".join(f"{g}={print_no_reduction_fraction(state[g], N)}" for g in GENES)
     print(f"{label}: ({values})")
 
 
-def print_edges():
+def print_edges(N, EDGES):
     print(f"\nParsed normalized edges in L_{N}")
     for e in EDGES:
         print(
@@ -146,38 +146,38 @@ def print_update_equations():
     print("g3' = (4/6 ⊙ g1) ⊙ ¬(5/6 ⊙ g2)")
 
 
-def print_trajectory(states):
+def print_trajectory(N, GENES, states):
     print("\nTrajectory for fixed number of steps")
 
     for t, state in enumerate(states):
-        print_state(f"x^{t}", state)
+        print_state(N, GENES,f"x^{t}", state)
 
 
-def print_lm_expansion(state):
+def print_lm_expansion(N, GENES, state):
     for g in GENES:
         vec = post_vector(state[g], N)
         rec = reconstruct_from_post(vec, N)
         print(f"{g}: {vec} -> {print_no_reduction_fraction(rec, N)}")
 
 
-def print_lm_expansion_along_trajectory(states, STEPS):
+def print_lm_expansion_along_trajectory(N, GENES, states, STEPS):
     print("\nLM/Post expansion along trajectory")
     index = 0
     for t, state in enumerate(states):
         print(f"\nx^{t}:")
-        print_lm_expansion(state)
+        print_lm_expansion(N, GENES, state)
         index += 1
 
     if index != STEPS:
         print("Fixed point")
 
 
-def literal_truth(state, gene, k, positive=True):
+def literal_truth(N, state, gene, k, positive=True):
     value = bool(sigma(k, state[gene], N))
     return value if positive else not value
 
 
-def implication_holds(transitions, premise, conclusions):
+def implication_holds(N, transitions, premise, conclusions):
     support = 0
 
     for st, nxt in transitions:
@@ -187,7 +187,7 @@ def implication_holds(transitions, premise, conclusions):
         }
 
         premise_true = all(
-            literal_truth(context[time], gene, k, positive)
+            literal_truth(N,context[time], gene, k, positive)
             for gene, k, positive, time in premise
         )
 
@@ -195,7 +195,7 @@ def implication_holds(transitions, premise, conclusions):
             support += 1
 
             conclusions_true = all(
-                literal_truth(context[time], gene, k, positive)
+                literal_truth(N,context[time], gene, k, positive)
                 for gene, k, positive, time in conclusions
             )
 
@@ -242,7 +242,7 @@ def expression_level(x, n):
     return "high"
 
 
-def describe_literal(lit):
+def describe_literal(N, lit):
     gene, k, positive, time = lit
     prime = "'" if time == "next" else ""
     threshold = Fraction(k, N - 1)
@@ -260,7 +260,7 @@ def describe_literal(lit):
     return f"{gene}{prime} does not reach {level} ({threshold_text})"
 
 
-def describe_regulatory_context(premise, conclusion_gene):
+def describe_regulatory_context(premise, conclusion_gene, EDGES):
     activators = []
     inhibitors = []
 
@@ -288,19 +288,19 @@ def describe_regulatory_context(premise, conclusion_gene):
     return "; ".join(parts)
 
 
-def interpret_rule(premise, conclusions):
+def interpret_rule(N, EDGES, premise, conclusions):
     premise_texts = []
 
     for lit in premise:
-        premise_texts.append(describe_literal(lit))
+        premise_texts.append(describe_literal(N, lit))
 
     conclusion_texts = []
 
     for lit in conclusions:
-        conclusion_texts.append(describe_literal(lit))
+        conclusion_texts.append(describe_literal(N, lit))
 
     conclusion_gene = conclusions[0][0]
-    context_text = describe_regulatory_context(premise, conclusion_gene)
+    context_text = describe_regulatory_context(premise, conclusion_gene, EDGES)
 
     return (
         "if "
@@ -312,7 +312,7 @@ def interpret_rule(premise, conclusions):
         + "."
     )
 
-def extract_single_conclusion_rules(transitions, max_premise_size=2, min_support=1):
+def extract_single_conclusion_rules(N, GENES, transitions, max_premise_size=2, min_support=1):
     premise_literals = []
     for g in GENES:
         for k in range(1, N):
@@ -331,12 +331,7 @@ def extract_single_conclusion_rules(transitions, max_premise_size=2, min_support
     for size in range(1, max_premise_size + 1):
         for premise in combinations(premise_literals, size):
             for conclusion in conclusion_literals:
-                ok, support = implication_holds(
-                    transitions,
-                    list(premise),
-                    [conclusion]
-                )
-
+                ok, support = implication_holds(N, transitions, list(premise), [conclusion])
                 if ok and support >= min_support:
                     rules.append((list(premise), [conclusion], support))
 
@@ -356,80 +351,18 @@ def filter_nontrivial_rules(rules):
     return filtered
 
 
-def check_second_transition_rule(states):
+def check_second_transition_rule(N, GENES, states):
     print("\nRule extracted from the second transition x^1 -> x^2")
     st = states[1]
     nxt = states[2]
-    print_state("x^1", st)
-    print_state("x^2", nxt)
+    print_state(N, GENES,"x^1", st)
+    print_state(N, GENES, "x^2", nxt)
     premise = [("g1", 6, True, "t"), ("g2", 4, True, "t"),]
     conclusions = [("g3", 1, True, "next"), ("g3", 2, False, "next"),]
-    ok, support = implication_holds([(st, nxt)], premise, conclusions)
+    ok, support = implication_holds(N,[(st, nxt)], premise, conclusions)
 
     print(rule_to_str(premise, conclusions), ok, f"support={support}")
     print("\nInterpretation:")
     print("if g1 is saturated and the inhibitor g2 is high,")
     print("then g3' reaches only level 1/6 and does not reach level 2/6.")
-
-
-
-N = 7
-STEPS = 6
-
-GENES = ["g0", "g1", "g2", "g3"]
-
-SERGIO_ROWS = [
-    [1, 1, 0, 2.4, 2],
-    [2, 2, 0, 1, 1.8, -1.2, 2, 2],
-    [3, 2, 1, 2, 1.5, -2.0, 2, 2],
-]
-
-INITIAL_STATE = {
-    "g0": Fraction(1),
-    "g1": Fraction(1, 6),
-    "g2": Fraction(0),
-    "g3": Fraction(0),
-}
-
-RAW_EDGES = parse_sergio_rows(SERGIO_ROWS)
-EDGES = build_edges(RAW_EDGES, N)
-
-print(f"\nL_{N}")
-print([print_no_reduction_fraction(x, N) for x in L(N)])
-
-print_edges()
-print_update_equations()
-
-states, transitions = run_n_steps(INITIAL_STATE, STEPS)
-
-print_trajectory(states)
-print_lm_expansion_along_trajectory(states, STEPS)
-
-check_second_transition_rule(states)
-
-rules = extract_single_conclusion_rules(
-    transitions,
-    max_premise_size=2,
-    min_support=1
-)
-
-rules = filter_nontrivial_rules(rules)
-
-rules = sorted(
-    rules,
-    key=lambda r: (-r[2], len(r[0]), rule_to_str(r[0], r[1]))
-)
-
-print("\nInterpreted extracted rules")
-
-for premise, conclusions, support in rules[:10]:
-    print(rule_to_str(premise, conclusions), f"[support={support}]")
-    print(interpret_rule(premise, conclusions))
-    print()
-
-
-
-
-
-
 
